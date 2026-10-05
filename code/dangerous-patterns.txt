@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────
+# Global Agent Guardrails — dangerous-patterns.txt
+# Un regex POSIX ERE por línea. Líneas con # = comentarios.
+# Fuente: skill global-agent-guardrails (davidondrej/skills)
+# Bloquear solo lo IRREVERSIBLE/catastrófico (borrado de datos,
+# wipe de disco, borrado de repo, exfiltración de tokens).
+# Los comandos destructivos-locales pero recuperables (git clean,
+# rm -rf node_modules) se dejan PERMITIDOS — sobre-bloquear mata
+# la utilidad del agente.
+# ─────────────────────────────────────────────────────────────
+
+# Borrado recursivo en raíz / home / sistema
+rm[[:space:]]+(-[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+)?(-[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+)?(/|/home|/root|~|/etc|/usr|/var|/boot|/srv)[[:space:]]*(/|$)
+rm[[:space:]]+(-[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+)?(/|/home|/root|/etc|/usr|/var|/boot|/srv)([[:space:]]|$)
+rm[[:space:]]+-rf[[:space:]]+(/|/home|/root|~|/etc|/usr|/var|/boot|/srv)([[:space:]]|$)
+rm[[:space:]]+-fr[[:space:]]+(/|/home|/root|~|/etc|/usr|/var|/boot|/srv)([[:space:]]|$)
+
+# Borrado del home con wildcard
+rm[[:space:]]+-rf[[:space:]]+~/?[[:space:]]*$
+rm[[:space:]]+-rf[[:space:]]+/home/[^/]*/?[[:space:]]*$
+rm[[:space:]]+-rf[[:space:]]+\.\*[[:space:]]*$
+rm[[:space:]]+-rf[[:space:]]+.*(/|\.)(git|\.git)([[:space:]]|$)
+
+# dd (escritura directa a disco/partición)
+dd[[:space:]]+.*of=/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*
+dd[[:space:]]+.*if=/dev/zero[[:space:]]+.*of=/dev/
+dd[[:space:]]+.*of=/dev/sda
+dd[[:space:]]+.*bs=.*[[:space:]]+of=/dev/
+
+# mkfs / formateo de discos
+mkfs(\.[a-z0-9]+)?[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*
+mkfs(\.[a-z0-9]+)?[[:space:]]+-[a-z]*[fF][a-z]*[[:space:]]+/dev/
+mkfs(\.[a-z0-9]+)?[[:space:]]+-[a-z]*[yY][a-z]*[[:space:]]+/dev/
+mkfs(\.[a-z0-9]+)?[[:space:]]+-t[[:space:]]+[a-z0-9]+[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*
+
+# fdisk/sfdisk/parted destructivos
+fdisk[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*[[:space:]]*$
+sfdisk[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*[[:space:]]*$
+parted[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*[[:space:]]+mklabel
+parted[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*[[:space:]]+rm
+
+# pvcreate/vgremove/lvremove (LVM destructivo)
+vgremove[[:space:]]+.*(--force|-f)
+lvremove[[:space:]]+.*(--force|-f)
+pvremove[[:space:]]+.*(--force|-f)
+
+# sudo rm masivo
+sudo[[:space:]]+rm[[:space:]]+-[a-zA-Z]*[rf][a-zA-Z]*[[:space:]]+(/|/home|/root|/etc|/usr|/var|/boot|/srv|~)([[:space:]]|$)
+sudo[[:space:]]+rm[[:space:]]+-rf[[:space:]]+/([[:space:]]|$)
+
+# chmod/chown masivo sobre sistema
+chmod[[:space:]]+-R[[:space:]]+(777|000)[[:space:]]+(/|/etc|/usr|/var|/home|/root)([[:space:]]|$)
+chown[[:space:]]+-R[[:space:]]+[^/]+[[:space:]]+(/|/etc|/usr|/var|/home|/root)([[:space:]]|$)
+
+# Fork bombs y loops infinitos
+:\(\)\{[[:space:]]*:[[:space:]]*\|[[:space:]]*:[[:space:]]*&[[:space:]]*\};:
+:\(\)\{[[:space:]]*\|[[:space:]]*:[[:space:]]*&\};:
+yes[[:space:]]+>[[:space:]]+/dev/|while[[:space:]]+true[[:space:]]*;[[:space:]]*do[[:space:]]*:[[:space:]]*;[[:space:]]*done
+
+# curl|sh / wget|sh (ejecución de script remoto sin revisar)
+curl[[:space:]].*\|[[:space:]]*(sudo[[:space:]]+)?(sh|bash)
+wget[[:space:]].*\|[[:space:]]*(sudo[[:space:]]+)?(sh|bash)
+curl[[:space:]].*\|[[:space:]]*(sudo[[:space:]]+)?python3?[[:space:]]*$
+(io|curl)[[:space:]]-fsSL[[:space:]].*\|[[:space:]]*(sudo[[:space:]]+)?(sh|bash)
+
+# git push --force (sobrescribe historial remoto)
+git[[:space:]]+push[[:space:]]+.*(--force|-f)([[:space:]]|$)
+git[[:space:]]+push[[:space:]]+--force-with-lease
+git[[:space:]]+push[[:space:]]+.*(-f|--force)[[:space:]]+(origin|upstream)
+
+# git reset --hard + push (borrado de historial)
+git[[:space:]]+reset[[:space:]]+--hard[[:space:]]+HEAD[[:space:]]*&&[[:space:]]*git[[:space:]]+push[[:space:]]+(--force|-f)
+
+# gh repo delete (borrado de repositorio)
+gh[[:space:]]+repo[[:space:]]+delete
+git[[:space:]]+push[[:space:]]+.*:refs/heads/
+
+# Borrado de base de datos / tablas (sin backup)
+drop[[:space:]]+(database|table|schema)
+DROP[[:space:]]+(DATABASE|TABLE|SCHEMA)
+pg_dump[[:space:]].*\|[[:space:]]*(sh|bash)
+psql[[:space:]].*DROP[[:space:]]+(DATABASE|TABLE)
+
+# Exfiltración de tokens/credenciales
+curl[[:space:]].*(TOKEN|API[_-]?KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)
+wget[[:space:]].*(TOKEN|API[_-]?KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)
+git[[:space:]]+clone[[:space:]].*\.git[[:space:]].*(TOKEN|api[_-]?key|secret|password)@
+
+# shutdown/reboot del sistema (no catastrófico pero disruptivo sin aviso)
+shutdown[[:space:]]+(-h|-r|--poweroff|--reboot)[[:space:]]*([0-9]|now|$)
+shutdown[[:space:]]+(now|0|-t[[:space:]]*0)([[:space:]]|$)
+halt[[:space:]]*$|poweroff[[:space:]]*$|reboot[[:space:]]*$
+
+# echo > /dev/sdX (escritura cruda)
+echo[[:space:]].*>[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*
+cat[[:space:]].*>[[:space:]]+/dev/(sd|nvme|vd|hd|mmcblk)[a-z0-9]*
